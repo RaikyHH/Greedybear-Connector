@@ -63,7 +63,9 @@ class ConverterToStix:
         self.tlp_marking = self._create_tlp_marking(tlp_level.lower())
 
         # The honeypot operator is the author of all produced objects.
-        self.author = self._create_operator(operator_name, operator_description, operator_url)
+        self.author = self._create_operator(
+            operator_name, operator_description, operator_url
+        )
 
         # GreedyBear is the collection/aggregation tool used by the operator.
         self.greedybear_tool = self._create_greedybear_tool()
@@ -144,7 +146,9 @@ class ConverterToStix:
         description: Optional[str] = None,
     ) -> stix2.Relationship:
         kwargs = dict(
-            id=StixCoreRelationship.generate_id(relationship_type, source_id, target_id),
+            id=StixCoreRelationship.generate_id(
+                relationship_type, source_id, target_id
+            ),
             relationship_type=relationship_type,
             source_ref=source_id,
             target_ref=target_id,
@@ -227,8 +231,12 @@ class ConverterToStix:
     # Infrastructure (honeypot) node
     # ------------------------------------------------------------------
 
-    def create_honeypot_infrastructure(self, honeypot_name: str) -> stix2.Infrastructure:
-        desc = HONEYPOT_DESCRIPTION_MAP.get(honeypot_name.lower(), f"{honeypot_name} honeypot")
+    def create_honeypot_infrastructure(
+        self, honeypot_name: str
+    ) -> stix2.Infrastructure:
+        desc = HONEYPOT_DESCRIPTION_MAP.get(
+            honeypot_name.lower(), f"{honeypot_name} honeypot"
+        )
         return stix2.Infrastructure(
             id=Infrastructure.generate_id(honeypot_name),
             name=honeypot_name,
@@ -296,7 +304,9 @@ class ConverterToStix:
     # Note with honeypot statistics
     # ------------------------------------------------------------------
 
-    def create_ioc_note(self, ioc_value: str, ioc: dict, obs_id: str) -> Optional[stix2.Note]:
+    def create_ioc_note(
+        self, ioc_value: str, ioc: dict, obs_id: str
+    ) -> Optional[stix2.Note]:
         attack_count = ioc.get("attack_count")
         interaction_count = ioc.get("interaction_count")
         login_attempts = ioc.get("login_attempts")
@@ -304,8 +314,16 @@ class ConverterToStix:
         recurrence = ioc.get("recurrence_probability")
 
         # Only create a note when there is at least some numeric data worth recording
-        if all(v is None for v in (attack_count, interaction_count, login_attempts,
-                                    destination_port_count, recurrence)):
+        if all(
+            v is None
+            for v in (
+                attack_count,
+                interaction_count,
+                login_attempts,
+                destination_port_count,
+                recurrence,
+            )
+        ):
             return None
 
         lines = [f"GreedyBear honeypot statistics for {ioc_value}:"]
@@ -434,7 +452,9 @@ class ConverterToStix:
             hp_objects.append(hp_obj)
             objects.append(
                 self.create_relationship(
-                    hp_obj.id, "consists-of", obs.id,
+                    hp_obj.id,
+                    "consists-of",
+                    obs.id,
                     start_time=first_seen,
                     stop_time=last_seen,
                 )
@@ -445,9 +465,11 @@ class ConverterToStix:
             indicator_pattern = (
                 f"[ipv4-addr:value = '{ioc_value}']"
                 if self._is_ipv4(ioc_value)
-                else f"[ipv6-addr:value = '{ioc_value}']"
-                if self._is_ipv6(ioc_value)
-                else f"[domain-name:value = '{ioc_value}']"
+                else (
+                    f"[ipv6-addr:value = '{ioc_value}']"
+                    if self._is_ipv6(ioc_value)
+                    else f"[domain-name:value = '{ioc_value}']"
+                )
             )
             indicator = stix2.Indicator(
                 id=Indicator.generate_id(indicator_pattern),
@@ -463,9 +485,7 @@ class ConverterToStix:
                 },
             )
             objects.append(indicator)
-            objects.append(
-                self.create_relationship(indicator.id, "based-on", obs.id)
-            )
+            objects.append(self.create_relationship(indicator.id, "based-on", obs.id))
             # indicates -> each honeypot infrastructure
             for hp_obj in hp_objects:
                 objects.append(

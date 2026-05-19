@@ -1,10 +1,11 @@
 import sys
 from datetime import datetime, timezone
 
+from pycti import OpenCTIConnectorHelper
+
 from connector.converter_to_stix import ConverterToStix
 from connector.settings import ConnectorSettings
 from greedybear_client import GreedyBearClient
-from pycti import OpenCTIConnectorHelper
 
 
 class GreedyBearConnector:
@@ -111,7 +112,9 @@ class GreedyBearConnector:
                     pass
 
             stix_objects.extend(
-                self.converter.ioc_to_stix_objects(ioc, create_indicators=cfg.create_indicators)
+                self.converter.ioc_to_stix_objects(
+                    ioc, create_indicators=cfg.create_indicators
+                )
             )
 
         # Always include the author, GreedyBear tool, their relationship, and TLP marking
@@ -144,34 +147,44 @@ class GreedyBearConnector:
                 self.helper.connect_id, "GreedyBear feed import"
             )
 
-            stix_objects = self._collect_intelligence()
+            try:
+                stix_objects = self._collect_intelligence()
 
-            if stix_objects:
-                bundle = self.helper.stix2_create_bundle(stix_objects)
-                bundles_sent = self.helper.send_stix2_bundle(
-                    bundle,
-                    work_id=work_id,
-                    cleanup_inconsistent_bundle=True,
-                )
-                self.helper.connector_logger.info(
-                    "[CONNECTOR] Bundle sent",
-                    {"bundles_sent": len(bundles_sent), "stix_objects": len(stix_objects)},
-                )
-            else:
-                self.helper.connector_logger.warning(
-                    "[CONNECTOR] No STIX objects produced — nothing sent."
-                )
+                if stix_objects:
+                    bundle = self.helper.stix2_create_bundle(stix_objects)
+                    bundles_sent = self.helper.send_stix2_bundle(
+                        bundle,
+                        work_id=work_id,
+                        cleanup_inconsistent_bundle=True,
+                    )
+                    self.helper.connector_logger.info(
+                        "[CONNECTOR] Bundle sent",
+                        {
+                            "bundles_sent": len(bundles_sent),
+                            "stix_objects": len(stix_objects),
+                        },
+                    )
+                else:
+                    self.helper.connector_logger.warning(
+                        "[CONNECTOR] No STIX objects produced — nothing sent."
+                    )
 
-            current_state = self.helper.get_state() or {}
-            current_state["last_run"] = now.strftime("%Y-%m-%d %H:%M:%S")
-            self.helper.set_state(current_state)
+                current_state = self.helper.get_state() or {}
+                current_state["last_run"] = now.strftime("%Y-%m-%d %H:%M:%S")
+                self.helper.set_state(current_state)
 
-            message = (
-                f"GreedyBear connector run complete, last_run set to "
-                f"{now.strftime('%Y-%m-%d %H:%M:%S')} UTC"
-            )
-            self.helper.api.work.to_processed(work_id, message)
-            self.helper.connector_logger.info(message)
+                message = (
+                    f"GreedyBear connector run complete, last_run set to "
+                    f"{now.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                )
+                self.helper.api.work.to_processed(work_id, message)
+                self.helper.connector_logger.info(message)
+
+            except Exception as err:
+                self.helper.connector_logger.error(str(err))
+                self.helper.api.work.to_processed(
+                    work_id, f"Error: {str(err)}", in_error=True
+                )
 
         except (KeyboardInterrupt, SystemExit):
             self.helper.connector_logger.info("[CONNECTOR] Stopped.")

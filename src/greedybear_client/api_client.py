@@ -7,7 +7,9 @@ from pydantic import HttpUrl
 
 
 class GreedyBearClient:
-    def __init__(self, helper: OpenCTIConnectorHelper, base_url: HttpUrl, api_key: Optional[str]):
+    def __init__(
+        self, helper: OpenCTIConnectorHelper, base_url: HttpUrl, api_key: Optional[str]
+    ):
         self.helper = helper
         self.base_url = str(base_url).rstrip("/")
         self.authenticated = bool(api_key)
@@ -25,7 +27,9 @@ class GreedyBearClient:
             response.raise_for_status()
             return response.json()
         except requests.RequestException as err:
-            self.helper.connector_logger.error("[API] Request failed", {"url": url, "error": str(err)})
+            self.helper.connector_logger.error(
+                "[API] Request failed", {"url": url, "error": str(err)}
+            )
             return None
 
     def get_advanced_feeds(
@@ -41,7 +45,9 @@ class GreedyBearClient:
         include_tor_exit_nodes: bool = True,
     ) -> list[dict]:
         if not self.authenticated:
-            self.helper.connector_logger.info("[API] No API key — skipping advanced feed.")
+            self.helper.connector_logger.info(
+                "[API] No API key — skipping advanced feed."
+            )
             return []
         """
         Fetch enriched IoCs from /api/feeds/advanced/ (requires auth).
@@ -75,7 +81,9 @@ class GreedyBearClient:
         # Build exclude_reputation list
         excluded = []
         if exclude_reputation:
-            excluded.extend(r.strip() for r in exclude_reputation.split(";") if r.strip())
+            excluded.extend(
+                r.strip() for r in exclude_reputation.split(";") if r.strip()
+            )
         if not include_mass_scanners:
             excluded.append("mass scanner")
         if not include_tor_exit_nodes:

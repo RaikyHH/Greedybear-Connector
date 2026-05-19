@@ -17,7 +17,14 @@ class ExternalImportConnectorConfig(BaseExternalImportConnectorConfig):
     )
     scope: ListFromString = Field(
         description="The scope of the connector.",
-        default=["IPv4-Addr", "IPv6-Addr", "Domain-Name", "Autonomous-System", "Location", "Infrastructure"],
+        default=[
+            "IPv4-Addr",
+            "IPv6-Addr",
+            "Domain-Name",
+            "Autonomous-System",
+            "Location",
+            "Infrastructure",
+        ],
     )
     duration_period: timedelta = Field(
         description="Interval between two runs of the connector.",
@@ -37,9 +44,11 @@ class GreedyBearConfig(BaseConfigModel):
         ),
         default=None,
     )
-    tlp_level: Literal["clear", "white", "green", "amber", "amber+strict", "red"] = Field(
-        description="Default TLP level for all imported entities.",
-        default="green",
+    tlp_level: Literal["clear", "white", "green", "amber", "amber+strict", "red"] = (
+        Field(
+            description="Default TLP level for all imported entities.",
+            default="green",
+        )
     )
 
     # Operator / Author identity (the honeypot operator — NOT GreedyBear itself)

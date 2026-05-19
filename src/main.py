@@ -1,7 +1,8 @@
 import traceback
 
-from connector import ConnectorSettings, GreedyBearConnector
 from pycti import OpenCTIConnectorHelper
+
+from connector import ConnectorSettings, GreedyBearConnector
 
 if __name__ == "__main__":
     try:
