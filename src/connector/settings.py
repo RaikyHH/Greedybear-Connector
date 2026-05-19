@@ -108,6 +108,14 @@ class GreedyBearConfig(BaseConfigModel):
         description="Minimum recurrence_probability (0.0–1.0). None means no filter.",
         default=None,
     )
+    create_indicators: bool = Field(
+        description=(
+            "Create STIX Indicators for every imported observable. "
+            "Indicators are linked via based-on to the observable and via indicates "
+            "to honeypot Infrastructure and Attack Pattern (if known)."
+        ),
+        default=True,
+    )
 
 
 class ConnectorSettings(BaseConnectorSettings):

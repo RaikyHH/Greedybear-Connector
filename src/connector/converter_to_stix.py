@@ -335,7 +335,7 @@ class ConverterToStix:
     # Full IoC conversion from advanced/standard feed entry
     # ------------------------------------------------------------------
 
-    def ioc_to_stix_objects(self, ioc: dict) -> list:
+    def ioc_to_stix_objects(self, ioc: dict, create_indicators: bool = True) -> list:
         """
         Convert a single GreedyBear IoC dict into STIX 2.1 objects + relationships.
 
@@ -440,42 +440,50 @@ class ConverterToStix:
                 )
             )
 
-        # -- Attack Pattern: use Indicator as bridge --
-        # IPv4-Addr -[uses]-> AttackPattern is NOT valid in OpenCTI.
-        # Correct path: Indicator -[based-on]-> Observable, Indicator -[indicates]-> Infrastructure
-        if attack_type:
+        # -- Indicator (optional, controlled by create_indicators flag) --
+        if create_indicators:
+            indicator_pattern = (
+                f"[ipv4-addr:value = '{ioc_value}']"
+                if self._is_ipv4(ioc_value)
+                else f"[ipv6-addr:value = '{ioc_value}']"
+                if self._is_ipv6(ioc_value)
+                else f"[domain-name:value = '{ioc_value}']"
+            )
+            indicator = stix2.Indicator(
+                id=Indicator.generate_id(indicator_pattern),
+                name=ioc_value,
+                pattern=indicator_pattern,
+                pattern_type="stix",
+                valid_from=first_seen or datetime.now(tz=timezone.utc),
+                created_by_ref=self.author.id,
+                object_marking_refs=[self.tlp_marking],
+                custom_properties={
+                    "x_opencti_created_by_ref": self.author.id,
+                    "x_opencti_labels": labels if labels else None,
+                },
+            )
+            objects.append(indicator)
+            objects.append(
+                self.create_relationship(indicator.id, "based-on", obs.id)
+            )
+            # indicates -> each honeypot infrastructure
+            for hp_obj in hp_objects:
+                objects.append(
+                    self.create_relationship(indicator.id, "indicates", hp_obj.id)
+                )
+            # indicates -> attack pattern (if known)
+            if attack_type:
+                ap = self.create_attack_pattern(attack_type)
+                if ap:
+                    objects.append(ap)
+                    objects.append(
+                        self.create_relationship(indicator.id, "indicates", ap.id)
+                    )
+        elif attack_type:
+            # No indicator requested but attack pattern still useful as context
             ap = self.create_attack_pattern(attack_type)
             if ap:
                 objects.append(ap)
-                indicator_pattern = (
-                    f"[ipv4-addr:value = '{ioc_value}']"
-                    if self._is_ipv4(ioc_value)
-                    else f"[ipv6-addr:value = '{ioc_value}']"
-                    if self._is_ipv6(ioc_value)
-                    else f"[domain-name:value = '{ioc_value}']"
-                )
-                indicator = stix2.Indicator(
-                    id=Indicator.generate_id(indicator_pattern),
-                    name=ioc_value,
-                    pattern=indicator_pattern,
-                    pattern_type="stix",
-                    valid_from=first_seen or datetime.now(tz=timezone.utc),
-                    created_by_ref=self.author.id,
-                    object_marking_refs=[self.tlp_marking],
-                    custom_properties={
-                        "x_opencti_created_by_ref": self.author.id,
-                        "x_opencti_labels": labels if labels else None,
-                    },
-                )
-                objects.append(indicator)
-                objects.append(
-                    self.create_relationship(indicator.id, "based-on", obs.id)
-                )
-                # Link indicator to each honeypot infrastructure it was observed in
-                for hp_obj in hp_objects:
-                    objects.append(
-                        self.create_relationship(indicator.id, "indicates", hp_obj.id)
-                    )
 
         # -- Note with raw honeypot statistics --
         note = self.create_ioc_note(ioc_value, ioc, obs.id)

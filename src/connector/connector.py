@@ -110,7 +110,9 @@ class GreedyBearConnector:
                 except (ValueError, TypeError):
                     pass
 
-            stix_objects.extend(self.converter.ioc_to_stix_objects(ioc))
+            stix_objects.extend(
+                self.converter.ioc_to_stix_objects(ioc, create_indicators=cfg.create_indicators)
+            )
 
         # Always include the author, GreedyBear tool, their relationship, and TLP marking
         if stix_objects:

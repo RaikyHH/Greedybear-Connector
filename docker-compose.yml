@@ -28,4 +28,5 @@ services:
       - GREEDYBEAR_MAX_AGE=3
       - GREEDYBEAR_FEED_SIZE=5000
       # - GREEDYBEAR_MIN_SCORE=0.3
+      - GREEDYBEAR_CREATE_INDICATORS=true
     restart: always

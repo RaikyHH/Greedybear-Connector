@@ -62,6 +62,7 @@ All settings can be provided as environment variables or in `config.yml`.
 | `GREEDYBEAR_MAX_AGE` | `3` | Max age of entries in days (advanced feed) |
 | `GREEDYBEAR_FEED_SIZE` | `5000` | Max IoCs per run |
 | `GREEDYBEAR_MIN_SCORE` | *(none)* | Minimum recurrence probability filter (0.0–1.0) |
+| `GREEDYBEAR_CREATE_INDICATORS` | `true` | Create STIX Indicators for every observable. Set to `false` to import observables only |
 
 ## Requirements
 
