@@ -1,5 +1,7 @@
+import math
 import sys
 from datetime import datetime, timezone
+from typing import Optional
 
 from pycti import OpenCTIConnectorHelper
 
@@ -36,9 +38,33 @@ class GreedyBearConnector:
             operator_url=self.config.greedybear.operator_url,
         )
 
-    def _collect_intelligence(self) -> list:
+    def _effective_max_age(self, now: datetime, last_run: Optional[str]) -> int:
+        """
+        Derive max_age in days from the last run timestamp.
+        Returns at least 1 (GreedyBear minimum) and at most cfg.max_age.
+        On first run the configured default is used as-is.
+        """
+        cfg = self.config.greedybear
+        if not last_run:
+            return cfg.max_age
+        try:
+            last_dt = datetime.strptime(last_run, "%Y-%m-%d %H:%M:%S").replace(
+                tzinfo=timezone.utc
+            )
+            elapsed_days = (now - last_dt).total_seconds() / 86400
+            # Round up so a 5-minute run still covers its window; cap at cfg.max_age
+            return max(1, min(cfg.max_age, math.ceil(elapsed_days)))
+        except (ValueError, TypeError):
+            return cfg.max_age
+
+    def _collect_intelligence(self, now: datetime, last_run: Optional[str]) -> list:
         stix_objects = []
         cfg = self.config.greedybear
+        max_age = self._effective_max_age(now, last_run)
+
+        self.helper.connector_logger.info(
+            "[GREEDYBEAR] Effective max_age", {"days": max_age}
+        )
 
         # ---- 1. ASN feed first — builds the as_name cache for IoC processing ----
         # as_name comes from MaxMind GeoIP (geoip.as_org) stored server-side.
@@ -47,7 +73,7 @@ class GreedyBearConnector:
         # Without an API key this returns [] immediately and the cache stays empty.
         self.helper.connector_logger.info("[GREEDYBEAR] Fetching ASN feed...")
         asn_entries = self.client.get_asn_feeds(
-            max_age=cfg.max_age,
+            max_age=max_age,
             feed_type=cfg.feed_type,
             attack_type=cfg.attack_type,
         )
@@ -68,7 +94,7 @@ class GreedyBearConnector:
         # ---- 2. Advanced feed (authenticated, enriched) ----
         self.helper.connector_logger.info("[GREEDYBEAR] Fetching advanced feed...")
         iocs = self.client.get_advanced_feeds(
-            max_age=cfg.max_age,
+            max_age=max_age,
             feed_size=cfg.feed_size,
             min_score=cfg.min_score,
             ioc_type=cfg.ioc_type,
@@ -136,9 +162,10 @@ class GreedyBearConnector:
             now = datetime.now(tz=timezone.utc)
             current_state = self.helper.get_state()
 
-            if current_state and "last_run" in current_state:
+            last_run = current_state.get("last_run") if current_state else None
+            if last_run:
                 self.helper.connector_logger.info(
-                    "[CONNECTOR] Last run", {"last_run": current_state["last_run"]}
+                    "[CONNECTOR] Last run", {"last_run": last_run}
                 )
             else:
                 self.helper.connector_logger.info("[CONNECTOR] First run ever.")
@@ -148,7 +175,7 @@ class GreedyBearConnector:
             )
 
             try:
-                stix_objects = self._collect_intelligence()
+                stix_objects = self._collect_intelligence(now, last_run)
 
                 if stix_objects:
                     bundle = self.helper.stix2_create_bundle(stix_objects)
