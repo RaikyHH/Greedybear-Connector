@@ -554,9 +554,6 @@ class ConverterToStix:
         asn_obj = self.create_asn(asn_number, as_name)
         objects.append(asn_obj)
 
-        first_seen = self._parse_dt(entry.get("first_seen"))
-        last_seen = self._parse_dt(entry.get("last_seen"))
-
         honeypots = entry.get("honeypots", [])
         if isinstance(honeypots, str):
             honeypots = [honeypots]
