@@ -34,3 +34,4 @@ greedybear:
   feed_size: 5000                   # max IoCs per run (default 5000)
   # min_score: 0.3                  # minimum recurrence_probability (0.0–1.0)
   create_indicators: true           # set to false to import observables only
+  # deep_enrich: false              # true: per-IoC enrichment (ports, FireHOL labels, days-seen); 1 API call each

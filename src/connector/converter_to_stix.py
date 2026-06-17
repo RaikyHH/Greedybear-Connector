@@ -1,5 +1,5 @@
 import ipaddress
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 import stix2
@@ -7,7 +7,6 @@ import validators
 from pycti import (
     Identity,
     Indicator,
-    Infrastructure,
     Location,
     MarkingDefinition,
     Note,
@@ -22,24 +21,6 @@ GREEDYBEAR_URL = "https://github.com/GreedyBear-Project/GreedyBear"
 ATTACK_PATTERN_MAP = {
     "scanner": ("T1595", "Active Scanning"),
     "payload_request": ("T1071", "Application Layer Protocol"),
-}
-
-# Human-readable honeypot descriptions
-HONEYPOT_DESCRIPTION_MAP = {
-    "cowrie": "SSH/Telnet honeypot",
-    "dionaea": "Multi-protocol honeypot",
-    "adbhoney": "Android Debug Bridge honeypot",
-    "ciscoasa": "Cisco ASA honeypot",
-    "conpot": "ICS/SCADA honeypot",
-    "elasticpot": "Elasticsearch honeypot",
-    "glutton": "All-port honeypot",
-    "heralding": "Credentials-capturing honeypot",
-    "honeytrap": "TCP/UDP honeypot",
-    "mailoney": "SMTP honeypot",
-    "medpot": "DICOM medical honeypot",
-    "rdpy": "RDP honeypot",
-    "snare": "Web application honeypot",
-    "tanner": "Web application honeypot backend",
 }
 
 
@@ -228,25 +209,6 @@ class ConverterToStix:
         )
 
     # ------------------------------------------------------------------
-    # Infrastructure (honeypot) node
-    # ------------------------------------------------------------------
-
-    def create_honeypot_infrastructure(
-        self, honeypot_name: str
-    ) -> stix2.Infrastructure:
-        desc = HONEYPOT_DESCRIPTION_MAP.get(
-            honeypot_name.lower(), f"{honeypot_name} honeypot"
-        )
-        return stix2.Infrastructure(
-            id=Infrastructure.generate_id(honeypot_name),
-            name=honeypot_name,
-            description=desc,
-            infrastructure_types=["honeypot"],
-            created_by_ref=self.author.id,
-            object_marking_refs=[self.tlp_marking],
-        )
-
-    # ------------------------------------------------------------------
     # Location
     # ------------------------------------------------------------------
 
@@ -310,17 +272,27 @@ class ConverterToStix:
         attack_count = ioc.get("attack_count")
         interaction_count = ioc.get("interaction_count")
         login_attempts = ioc.get("login_attempts")
+        credential_count = ioc.get("credential_count")
         destination_port_count = ioc.get("destination_port_count")
+        destination_ports = ioc.get(
+            "destination_ports"
+        )  # actual ports (enrichment only)
+        sensors = ioc.get("sensors")
+        days_seen = ioc.get("number_of_days_seen")
         recurrence = ioc.get("recurrence_probability")
 
-        # Only create a note when there is at least some numeric data worth recording
+        # Only create a note when there is at least some data worth recording
         if all(
             v is None
             for v in (
                 attack_count,
                 interaction_count,
                 login_attempts,
+                credential_count,
                 destination_port_count,
+                destination_ports,
+                sensors,
+                days_seen,
                 recurrence,
             )
         ):
@@ -333,15 +305,33 @@ class ConverterToStix:
             lines.append(f"- Interaction count: {interaction_count}")
         if login_attempts is not None:
             lines.append(f"- Login attempts: {login_attempts}")
-        if destination_port_count is not None:
+        if credential_count is not None:
+            lines.append(f"- Credentials captured: {credential_count}")
+        if destination_ports:
+            lines.append(
+                "- Destination ports: " + ", ".join(str(p) for p in destination_ports)
+            )
+        elif destination_port_count is not None:
             lines.append(f"- Destination port count: {destination_port_count}")
+        if sensors:
+            addrs = [
+                s.get("address")
+                for s in sensors
+                if isinstance(s, dict) and s.get("address")
+            ]
+            if addrs:
+                lines.append(f"- Seen by sensors: {', '.join(addrs)}")
+        if days_seen is not None:
+            lines.append(f"- Active on {days_seen} distinct day(s)")
         if recurrence is not None:
             lines.append(f"- Recurrence probability: {recurrence:.2%}")
 
         content = "\n".join(lines)
+        # Stable id per IoC so re-runs upsert the same Note instead of duplicating it.
+        stable_abstract = f"GreedyBear stats: {ioc_value}"
         return stix2.Note(
-            id=Note.generate_id(content, datetime.now(tz=timezone.utc).isoformat()),
-            abstract=f"GreedyBear stats: {ioc_value}",
+            id=Note.generate_id(stable_abstract, ioc_value),
+            abstract=stable_abstract,
             content=content,
             authors=[self.author.name],
             object_refs=[obs_id],
@@ -401,6 +391,10 @@ class ConverterToStix:
         attack_type = self._derive_attack_type(ioc)
         if attack_type:
             labels.append(attack_type)
+        # FireHOL blocklist memberships (deep enrichment) as labels
+        for cat in ioc.get("firehol_categories") or []:
+            if cat:
+                labels.append(f"firehol:{cat}")
 
         # Create the observable (IP or domain)
         if self._is_ipv4(ioc_value) or self._is_ipv6(ioc_value):
@@ -443,24 +437,9 @@ class ConverterToStix:
             except (ValueError, TypeError):
                 pass
 
-        # -- Honeypot infrastructure: Infrastructure -[consists-of]-> Observable --
-        # (NOT obs -[communicates-with]-> Infrastructure — that direction is invalid in OpenCTI)
-        hp_objects: list[stix2.Infrastructure] = []
-        for hp_name in honeypots:
-            hp_obj = self.create_honeypot_infrastructure(hp_name)
-            objects.append(hp_obj)
-            hp_objects.append(hp_obj)
-            objects.append(
-                self.create_relationship(
-                    hp_obj.id,
-                    "consists-of",
-                    obs.id,
-                    start_time=first_seen,
-                    stop_time=last_seen,
-                )
-            )
+        # Honeypots stay as labels (feed_type), not Infrastructure entities.
 
-        # -- Indicator (optional, controlled by create_indicators flag) --
+        # Indicator (optional, controlled by create_indicators)
         if create_indicators:
             indicator_pattern = (
                 f"[ipv4-addr:value = '{ioc_value}']"
@@ -471,26 +450,34 @@ class ConverterToStix:
                     else f"[domain-name:value = '{ioc_value}']"
                 )
             )
+            now = datetime.now(tz=timezone.utc)
+            valid_from = first_seen or now
+            # Validity window anchored on the last observation; always strictly after
+            # valid_from so the STIX 2.1 constraint holds.
+            valid_until = max(last_seen or valid_from, valid_from) + timedelta(days=30)
+
+            ind_custom = {"x_opencti_created_by_ref": self.author.id}
+            if labels:
+                ind_custom["x_opencti_labels"] = labels
+            # Score from recurrence probability (0-1 -> 1-100); fall back to a
+            # reputation-based score when probability is absent.
+            score = self._derive_score(ioc)
+            if score is not None:
+                ind_custom["x_opencti_score"] = score
+
             indicator = stix2.Indicator(
                 id=Indicator.generate_id(indicator_pattern),
                 name=ioc_value,
                 pattern=indicator_pattern,
                 pattern_type="stix",
-                valid_from=first_seen or datetime.now(tz=timezone.utc),
+                valid_from=valid_from,
+                valid_until=valid_until,
                 created_by_ref=self.author.id,
                 object_marking_refs=[self.tlp_marking],
-                custom_properties={
-                    "x_opencti_created_by_ref": self.author.id,
-                    "x_opencti_labels": labels if labels else None,
-                },
+                custom_properties=ind_custom,
             )
             objects.append(indicator)
             objects.append(self.create_relationship(indicator.id, "based-on", obs.id))
-            # indicates -> each honeypot infrastructure
-            for hp_obj in hp_objects:
-                objects.append(
-                    self.create_relationship(indicator.id, "indicates", hp_obj.id)
-                )
             # indicates -> attack pattern (if known)
             if attack_type:
                 ap = self.create_attack_pattern(attack_type)
@@ -511,6 +498,25 @@ class ConverterToStix:
             objects.append(note)
 
         return objects
+
+    # Reputation -> score mapping used when recurrence_probability is missing.
+    _REPUTATION_SCORE = {
+        "known attacker": 80,
+        "mass scanner": 40,
+        "tor exit node": 50,
+        "bot, crawler": 30,
+    }
+
+    @classmethod
+    def _derive_score(cls, ioc: dict) -> Optional[int]:
+        rp = ioc.get("recurrence_probability")
+        if rp is not None:
+            try:
+                return max(1, min(100, round(float(rp) * 100)))
+            except (ValueError, TypeError):
+                pass
+        rep = (ioc.get("ip_reputation") or "").lower()
+        return cls._REPUTATION_SCORE.get(rep)
 
     @staticmethod
     def _derive_attack_type(ioc: dict) -> Optional[str]:
@@ -554,21 +560,7 @@ class ConverterToStix:
         asn_obj = self.create_asn(asn_number, as_name)
         objects.append(asn_obj)
 
-        honeypots = entry.get("honeypots", [])
-        if isinstance(honeypots, str):
-            honeypots = [honeypots]
-        for hp_name in honeypots:
-            if not hp_name:
-                continue
-            hp_obj = self.create_honeypot_infrastructure(hp_name)
-            objects.append(hp_obj)
-            # Infrastructure -[consists-of]-> AutonomousSystem is not valid either.
-            # Use: AutonomousSystem -[belongs-to]-> Infrastructure is also not valid.
-            # Valid option for ASN<->Infrastructure: no direct relationship in OpenCTI schema.
-            # Instead record that the ASN was seen at these honeypots via a Note-style
-            # relationship — we skip the invalid rel and let the shared Infrastructure node
-            # provide the implicit link when IoC objects also point to the same hp_obj.
-
+        # No valid AS<->Infrastructure relationship in OpenCTI, so emit only the AS.
         return objects
 
     # ------------------------------------------------------------------

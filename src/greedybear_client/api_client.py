@@ -1,8 +1,12 @@
+import time
 from typing import Optional
 
 import requests
 from pycti import OpenCTIConnectorHelper
 from pydantic import HttpUrl
+
+MAX_RETRIES = 3
+BACKOFF_BASE = 2  # seconds: 2, 4, 8 ...
 
 
 class GreedyBearClient:
@@ -20,16 +24,27 @@ class GreedyBearClient:
 
     def _get(self, path: str, params: Optional[dict] = None) -> Optional[dict | list]:
         url = f"{self.base_url}{path}"
-        try:
-            response = self.session.get(url, params=params, timeout=60)
-            self.helper.connector_logger.info("[API] GET request", {"url": url})
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as err:
-            self.helper.connector_logger.error(
-                "[API] Request failed", {"url": url, "error": str(err)}
-            )
-            return None
+        self.helper.connector_logger.info("[API] GET request", {"url": url})
+        last_err: Optional[Exception] = None
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                response = self.session.get(url, params=params, timeout=60)
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException as err:
+                last_err = err
+                if attempt < MAX_RETRIES:
+                    delay = BACKOFF_BASE**attempt
+                    self.helper.connector_logger.warning(
+                        "[API] Request failed, retrying",
+                        {"url": url, "attempt": attempt, "retry_in_s": delay},
+                    )
+                    time.sleep(delay)
+        self.helper.connector_logger.error(
+            "[API] Request failed after retries",
+            {"url": url, "error": str(last_err)},
+        )
+        return None
 
     def get_advanced_feeds(
         self,
@@ -43,11 +58,6 @@ class GreedyBearClient:
         include_mass_scanners: bool = False,
         include_tor_exit_nodes: bool = True,
     ) -> list[dict]:
-        if not self.authenticated:
-            self.helper.connector_logger.info(
-                "[API] No API key — skipping advanced feed."
-            )
-            return []
         """
         Fetch enriched IoCs from /api/feeds/advanced/ (requires auth).
 
@@ -61,6 +71,11 @@ class GreedyBearClient:
           login_attempts, recurrence_probability, expected_interactions,
           attacker_country, attacker_country_code, tags, sensors
         """
+        if not self.authenticated:
+            self.helper.connector_logger.info(
+                "[API] No API key — skipping advanced feed."
+            )
+            return []
         params: dict = {
             "max_age": max_age,
             "feed_size": feed_size,

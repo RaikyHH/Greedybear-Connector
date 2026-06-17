@@ -48,9 +48,9 @@ class GreedyBearConnector:
         if not last_run:
             return cfg.max_age
         try:
-            last_dt = datetime.strptime(last_run, "%Y-%m-%d %H:%M:%S").replace(
-                tzinfo=timezone.utc
-            )
+            last_dt = datetime.fromisoformat(last_run)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
             elapsed_days = (now - last_dt).total_seconds() / 86400
             # Round up so a 5-minute run still covers its window; cap at cfg.max_age
             return max(1, min(cfg.max_age, math.ceil(elapsed_days)))
@@ -106,9 +106,18 @@ class GreedyBearConnector:
 
         # ---- 3. Fallback: standard (public) feed ----
         if not iocs:
-            self.helper.connector_logger.info(
-                "[GREEDYBEAR] Advanced feed empty — falling back to standard feed."
-            )
+            # If we are authenticated, an empty advanced feed is unexpected (likely a
+            # transient API error or auth issue) and the fallback yields *less* enriched
+            # data — flag it loudly instead of silently degrading.
+            if self.client.authenticated:
+                self.helper.connector_logger.warning(
+                    "[GREEDYBEAR] Advanced feed returned nothing despite an API key — "
+                    "falling back to the standard feed (enriched data may be missing)."
+                )
+            else:
+                self.helper.connector_logger.info(
+                    "[GREEDYBEAR] No API key — using the public standard feed."
+                )
             iocs = self.client.get_standard_feeds(
                 feed_type=cfg.feed_type,
                 attack_type=cfg.attack_type,
@@ -136,6 +145,22 @@ class GreedyBearConnector:
                     ioc["as_name"] = asn_name_cache.get(int(asn_raw), "")
                 except (ValueError, TypeError):
                     pass
+
+            # Optional deep enrichment: one API call per IoC (only when enabled),
+            # harvesting fields the feed does not carry.
+            if cfg.deep_enrich and self.client.authenticated:
+                enr = self.client.get_enrichment(val)
+                if enr and enr.get("found") and isinstance(enr.get("ioc"), dict):
+                    eioc = enr["ioc"]
+                    for k in (
+                        "destination_ports",
+                        "sensors",
+                        "credential_count",
+                        "firehol_categories",
+                        "number_of_days_seen",
+                    ):
+                        if eioc.get(k) is not None and ioc.get(k) is None:
+                            ioc[k] = eioc[k]
 
             stix_objects.extend(
                 self.converter.ioc_to_stix_objects(
@@ -197,12 +222,12 @@ class GreedyBearConnector:
                     )
 
                 current_state = self.helper.get_state() or {}
-                current_state["last_run"] = now.strftime("%Y-%m-%d %H:%M:%S")
+                current_state["last_run"] = now.isoformat()
                 self.helper.set_state(current_state)
 
                 message = (
                     f"GreedyBear connector run complete, last_run set to "
-                    f"{now.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                    f"{now.isoformat()}"
                 )
                 self.helper.api.work.to_processed(work_id, message)
                 self.helper.connector_logger.info(message)

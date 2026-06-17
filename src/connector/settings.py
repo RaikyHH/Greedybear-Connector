@@ -121,9 +121,17 @@ class GreedyBearConfig(BaseConfigModel):
         description=(
             "Create STIX Indicators for every imported observable. "
             "Indicators are linked via based-on to the observable and via indicates "
-            "to honeypot Infrastructure and Attack Pattern (if known)."
+            "to the MITRE Attack Pattern (if known)."
         ),
         default=True,
+    )
+    deep_enrich: bool = Field(
+        description=(
+            "Per-IoC enrichment call adding the actual destination ports and the "
+            "days-seen count to the Note, plus FireHOL blocklist categories as "
+            "labels. One extra API call per IoC — slow for large feeds; needs an API key."
+        ),
+        default=False,
     )
 
 

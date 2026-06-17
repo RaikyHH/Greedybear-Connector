@@ -29,4 +29,5 @@ services:
       - GREEDYBEAR_FEED_SIZE=5000
       # - GREEDYBEAR_MIN_SCORE=0.3
       - GREEDYBEAR_CREATE_INDICATORS=true
+      # - GREEDYBEAR_DEEP_ENRICH=false   # true: per-IoC enrichment (ports, FireHOL labels, days-seen); 1 API call each, slow
     restart: always
