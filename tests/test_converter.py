@@ -50,8 +50,12 @@ def test_parse_dt_formats():
 
 def test_note_id_is_stable_across_runs(converter):
     ioc = {"value": "1.2.3.4", "attack_count": 7}
-    note_a = converter.create_ioc_note("1.2.3.4", ioc, "ipv4-addr--11111111-1111-4111-8111-111111111111")
-    note_b = converter.create_ioc_note("1.2.3.4", ioc, "ipv4-addr--11111111-1111-4111-8111-111111111111")
+    note_a = converter.create_ioc_note(
+        "1.2.3.4", ioc, "ipv4-addr--11111111-1111-4111-8111-111111111111"
+    )
+    note_b = converter.create_ioc_note(
+        "1.2.3.4", ioc, "ipv4-addr--11111111-1111-4111-8111-111111111111"
+    )
     assert note_a.id == note_b.id  # same IoC -> same Note id (upsert, not duplicate)
 
 
